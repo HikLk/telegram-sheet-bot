@@ -2,6 +2,7 @@ import asyncio
 import logging
 import io
 import requests
+from datetime import datetime, timezone, timedelta
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -17,18 +18,32 @@ TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
 
 SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 
-# PDF-лист (один и тот же для второй кнопки)
+# PDF-лист
 PDF_GID = "1841691264"
-PDF_FILENAME = "Основной_лист.pdf"
 
 # Кнопки
 BUTTON_ALL_EXCEL = "📊 Все листы в один Excel"
-BUTTON_PDF = "📄 PDF (gid=1841691264)"
+BUTTON_PDF = "📄 PDF (отчёт)"
+
+# Смещение для московского времени
+MSK_OFFSET = timedelta(hours=3)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # ────────────────────────────────────────────────
+def get_report_filename() -> str:
+    """Определяет имя файла по московскому времени (+3 к UTC)"""
+    utc_now = datetime.now(timezone.utc)
+    msk_now = utc_now + MSK_OFFSET
+    hour = msk_now.hour
+    
+    if 18 <= hour or hour < 6:
+        return "Отчет на 20:00.pdf"
+    else:
+        return "Отчет на 8:00.pdf"
+
+
 @dp.message(CommandStart())
 async def start(message: Message):
     kb = ReplyKeyboardMarkup(
@@ -41,19 +56,15 @@ async def start(message: Message):
     )
     await message.answer(
         "Выбери действие:\n\n"
-        f"• {BUTTON_ALL_EXCEL} — выгрузит **всю таблицу** (все листы, включая Рейтинг ИТОГ и все РУАД) в один .xlsx файл\n"
-        f"• {BUTTON_PDF} — выгрузит **только лист с gid={PDF_GID}** в PDF",
+        f"• {BUTTON_ALL_EXCEL} — вся таблица в одном .xlsx файле\n"
+        f"• {BUTTON_PDF} — лист gid={PDF_GID} в PDF (A3, альбомная ориентация)",
         reply_markup=kb
     )
 
 
 @dp.message(F.text == BUTTON_ALL_EXCEL)
 async def export_all_excel(message: Message):
-    # Экспорт всей книги в .xlsx (все листы сразу)
-    export_url = (
-        f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?"
-        f"format=xlsx"
-    )
+    export_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
 
     try:
         response = requests.get(export_url, timeout=40)
@@ -66,33 +77,32 @@ async def export_all_excel(message: Message):
                 file=file_bytes.getvalue(),
                 filename="Все_листы.xlsx"
             ),
-            caption="Вот вся таблица в одном Excel-файле (все доступные листы)"
+            caption="Вся таблица (все доступные листы)"
         )
 
     except requests.Timeout:
         await message.answer("⏳ Долго скачиваем файл. Попробуй ещё раз.")
     except requests.RequestException as e:
-        await message.answer(
-            f"❌ Не удалось скачать Excel: {str(e)}\n"
-            "Убедись, что таблица опубликована или доступна по ссылке (Anyone with the link)."
-        )
+        await message.answer(f"❌ Не удалось скачать Excel: {str(e)}")
     except Exception as e:
         await message.answer(f"🚨 Ошибка: {str(e)}")
 
 
 @dp.message(F.text == BUTTON_PDF)
 async def export_pdf(message: Message):
-    # Экспорт конкретного листа в PDF
+    filename = get_report_filename()
+
     export_url = (
         f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?"
         f"format=pdf&"
         f"gid={PDF_GID}&"
-        f"size=A4&"
-        f"portrait=true&"
-        f"fitw=true&"          # подгонка по ширине
-        f"gridlines=false&"    # без сетки
-        f"printtitle=false&"   # без заголовка
-        f"sheetnames=false"    # без имени листа
+        f"size=A3&"             # A3
+        f"portrait=false&"      # альбомная ориентация (landscape)
+        f"fitw=true&"           # подгонка по ширине страницы
+        f"gridlines=false&"     # без сетки
+        f"printtitle=false&"    # без заголовка таблицы
+        f"sheetnames=false&"    # без имени листа вверху
+        f"fzr=false"            # без повторения замороженных строк
     )
 
     try:
@@ -104,18 +114,15 @@ async def export_pdf(message: Message):
         await message.answer_document(
             document=BufferedInputFile(
                 file=pdf_bytes.getvalue(),
-                filename=PDF_FILENAME
+                filename=filename
             ),
-            caption=f"PDF листа (gid={PDF_GID})"
+            caption=f"{filename} (A3, альбомная, {MSK_OFFSET} к UTC)"
         )
 
     except requests.Timeout:
         await message.answer("⏳ Долго скачиваем PDF. Попробуй ещё раз.")
     except requests.RequestException as e:
-        await message.answer(
-            f"❌ Не удалось скачать PDF: {str(e)}\n"
-            "Проверь доступ к таблице (должна быть опубликована или 'Anyone with the link')."
-        )
+        await message.answer(f"❌ Не удалось скачать PDF: {str(e)}\nПроверь доступ к таблице.")
     except Exception as e:
         await message.answer(f"🚨 Ошибка: {str(e)}")
 
