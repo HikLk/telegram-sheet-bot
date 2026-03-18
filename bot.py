@@ -16,14 +16,17 @@ from aiogram.types import (
 # ────────────────────────────────────────────────
 TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
 
-SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
-
-# Лист для PDF и отдельного Excel (один и тот же gid)
+# ID основной таблицы (для предыдущих кнопок)
+MAIN_SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 SINGLE_SHEET_GID = "1841691264"
 
+# Новая таблица — планы от РУАД
+PLANS_SPREADSHEET_ID = "1SPmkft_ZvZr4tmCBcmzN0AE7HPscy3aRwB82uqR34CU"
+
 # Кнопки
-BUTTON_FULL_REPORT = "Отчет по зимним видам работ ❄️"
-BUTTON_WORKERS_EXCEL = "Количество дорожных рабочих для МТДИ 🧑‍🏭"
+BUTTON_FULL_REPORT      = "Отчет по зимним видам работ ❄️"
+BUTTON_WORKERS_EXCEL    = "Количество дорожных рабочих для МТДИ 🧑‍🏭"
+BUTTON_PLANS_EXCEL      = "Планы от РУАД 📋"
 
 # Смещение для московского времени
 MSK_OFFSET = timedelta(hours=3)
@@ -33,7 +36,6 @@ dp = Dispatcher()
 
 # ────────────────────────────────────────────────
 def get_report_info():
-    """Для полной отчётной кнопки: базовое имя и текст периода"""
     utc_now = datetime.now(timezone.utc)
     msk_now = utc_now + MSK_OFFSET
     hour = msk_now.hour
@@ -60,6 +62,7 @@ async def start(message: Message):
         keyboard=[
             [KeyboardButton(text=BUTTON_FULL_REPORT)],
             [KeyboardButton(text=BUTTON_WORKERS_EXCEL)],
+            [KeyboardButton(text=BUTTON_PLANS_EXCEL)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -67,7 +70,8 @@ async def start(message: Message):
     await message.answer(
         "Выберите нужный отчёт:\n\n"
         "❄️ — полный отчёт (Excel всей таблицы + PDF листа)\n"
-        "🧑‍🏭 — только лист с данными по дорожным рабочим (Excel)",
+        "🧑‍🏭 — только лист с данными по дорожным рабочим (Excel)\n"
+        "📋 — планы от РУАД (вся таблица в Excel)",
         reply_markup=kb
     )
 
@@ -80,19 +84,15 @@ async def send_full_report(message: Message):
     excel_filename = f"{base_name}.xlsx"
     pdf_filename   = f"{base_name}.pdf"
 
-    # Текстовое сообщение первым
     await message.answer(report_text)
 
-    # Excel всей таблицы (без gid → все листы)
-    excel_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
+    # Excel всей основной таблицы
+    url = f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx"
     try:
-        excel_resp = requests.get(excel_url, timeout=40)
-        excel_resp.raise_for_status()
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
         await message.answer_document(
-            document=BufferedInputFile(
-                file=excel_resp.content,
-                filename=excel_filename
-            ),
+            document=BufferedInputFile(file=r.content, filename=excel_filename),
             caption=None
         )
     except Exception as e:
@@ -101,53 +101,53 @@ async def send_full_report(message: Message):
 
     # PDF конкретного листа
     pdf_url = (
-        f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?"
+        f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?"
         f"format=pdf&gid={SINGLE_SHEET_GID}&size=A3&portrait=false&fitw=true&"
         f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
     try:
-        pdf_resp = requests.get(pdf_url, timeout=30)
-        pdf_resp.raise_for_status()
+        r = requests.get(pdf_url, timeout=30)
+        r.raise_for_status()
         await message.answer_document(
-            document=BufferedInputFile(
-                file=pdf_resp.content,
-                filename=pdf_filename
-            ),
+            document=BufferedInputFile(file=r.content, filename=pdf_filename),
             caption=None
         )
     except Exception as e:
         await message.answer(f"❌ Не удалось выгрузить PDF: {str(e)}")
 
 
-# ── Только один лист gid=1841691264 в Excel ──────────────────────────
+# ── Только лист gid=1841691264 в Excel ───────────────────────────────
 @dp.message(F.text == BUTTON_WORKERS_EXCEL)
 async def send_workers_excel(message: Message):
     filename = "Данные по дорожным рабочим.xlsx"
-
-    # Экспорт ТОЛЬКО одного листа (с gid!)
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx&gid={SINGLE_SHEET_GID}"
+    url = f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx&gid={SINGLE_SHEET_GID}"
 
     try:
-        response = requests.get(url, timeout=40)
-        response.raise_for_status()
-
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
         await message.answer_document(
-            document=BufferedInputFile(
-                file=response.content,
-                filename=filename
-            ),
+            document=BufferedInputFile(file=r.content, filename=filename),
             caption=None
         )
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 400 or e.response.status_code == 403:
-            await message.answer(
-                "❌ Ошибка доступа. Убедись, что таблица опубликована ('Опубликовать в Интернете') "
-                "или доступна по ссылке ('Anyone with the link' → Viewer)."
-            )
-        else:
-            await message.answer(f"❌ Не удалось выгрузить данные: {str(e)}")
     except Exception as e:
-        await message.answer(f"🚨 Ошибка: {str(e)}")
+        await message.answer(f"❌ Не удалось выгрузить данные по рабочим: {str(e)}")
+
+
+# ── Планы от РУАД — вся таблица в Excel ──────────────────────────────
+@dp.message(F.text == BUTTON_PLANS_EXCEL)
+async def send_plans_excel(message: Message):
+    filename = "ПЛАНЫ от РУАД.xlsx"
+    url = f"https://docs.google.com/spreadsheets/d/{PLANS_SPREADSHEET_ID}/export?format=xlsx"
+
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(
+            document=BufferedInputFile(file=r.content, filename=filename),
+            caption=None
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить планы от РУАД: {str(e)}")
 
 
 # ────────────────────────────────────────────────
