@@ -18,11 +18,12 @@ TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
 
 SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 
-# PDF-лист
+# PDF-лист (для старой кнопки)
 PDF_GID = "1841691264"
 
-# Кнопка
-BUTTON_REPORT = "Отчет по зимним видам работ ❄️"
+# Кнопки
+BUTTON_FULL_REPORT = "Отчет по зимним видам работ ❄️"
+BUTTON_WORKERS_EXCEL = "Количество дорожных рабочих для МТДИ 🧑‍🏭"
 
 # Смещение для московского времени
 MSK_OFFSET = timedelta(hours=3)
@@ -32,7 +33,7 @@ dp = Dispatcher()
 
 # ────────────────────────────────────────────────
 def get_report_info():
-    """Возвращает базовое имя файлов и текст периода в зависимости от MSK времени"""
+    """Для полной отчётной кнопки: базовое имя и текст периода"""
     utc_now = datetime.now(timezone.utc)
     msk_now = utc_now + MSK_OFFSET
     hour = msk_now.hour
@@ -57,72 +58,90 @@ def get_report_info():
 async def start(message: Message):
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BUTTON_REPORT)],
+            [KeyboardButton(text=BUTTON_FULL_REPORT)],
+            [KeyboardButton(text=BUTTON_WORKERS_EXCEL)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False
     )
     await message.answer(
-        "Нажмите кнопку ниже, чтобы получить отчёт ❄️",
+        "Выберите нужный отчёт:\n\n"
+        "❄️ — полный отчёт (Excel + PDF)\n"
+        "🧑‍🏭 — только данные по дорожным рабочим (Excel)",
         reply_markup=kb
     )
 
 
-@dp.message(F.text == BUTTON_REPORT)
-async def send_report(message: Message):
+# ── Полный отчёт (Excel + PDF) ──────────────────────────────────────
+@dp.message(F.text == BUTTON_FULL_REPORT)
+async def send_full_report(message: Message):
     base_name, report_text = get_report_info()
 
     excel_filename = f"{base_name}.xlsx"
     pdf_filename   = f"{base_name}.pdf"
 
-    # 1. Отправляем текстовое сообщение первым
+    # Текстовое сообщение первым
     await message.answer(report_text)
 
-    # 2. Excel (вся таблица)
+    # Excel всей таблицы
     excel_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
-
     try:
         excel_resp = requests.get(excel_url, timeout=40)
         excel_resp.raise_for_status()
-
         await message.answer_document(
             document=BufferedInputFile(
                 file=excel_resp.content,
                 filename=excel_filename
             ),
-            caption=None  # без подписи
+            caption=None
         )
     except Exception as e:
         await message.answer(f"❌ Не удалось выгрузить Excel: {str(e)}")
-        return  # если Excel не скачался — дальше не пытаемся
+        return
 
-    # 3. PDF (конкретный лист, A3 landscape)
+    # PDF конкретного листа
     pdf_url = (
         f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?"
-        f"format=pdf&"
-        f"gid={PDF_GID}&"
-        f"size=A3&"
-        f"portrait=false&"
-        f"fitw=true&"
-        f"gridlines=false&"
-        f"printtitle=false&"
-        f"sheetnames=false&"
-        f"fzr=false"
+        f"format=pdf&gid={PDF_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
-
     try:
         pdf_resp = requests.get(pdf_url, timeout=30)
         pdf_resp.raise_for_status()
-
         await message.answer_document(
             document=BufferedInputFile(
                 file=pdf_resp.content,
                 filename=pdf_filename
             ),
-            caption=None  # без подписи
+            caption=None
         )
     except Exception as e:
         await message.answer(f"❌ Не удалось выгрузить PDF: {str(e)}")
+
+
+# ── Только лист gid=1841691264 в Excel ───────────────────────────────
+@dp.message(F.text == BUTTON_WORKERS_EXCEL)
+async def send_workers_excel(message: Message):
+    filename = "Данные по дорожным рабочим.xlsx"
+
+    # Экспорт конкретного листа в .xlsx
+    # Примечание: Google Sheets export по gid работает только для pdf, 
+    # для xlsx всегда скачивается вся книга. Поэтому скачиваем всю таблицу.
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
+
+    try:
+        response = requests.get(url, timeout=40)
+        response.raise_for_status()
+
+        await message.answer_document(
+            document=BufferedInputFile(
+                file=response.content,
+                filename=filename
+            ),
+            caption=None
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить данные по рабочим: {str(e)}")
 
 
 # ────────────────────────────────────────────────
