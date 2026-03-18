@@ -18,8 +18,8 @@ TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
 
 SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 
-# PDF-лист (для старой кнопки)
-PDF_GID = "1841691264"
+# Лист для PDF и отдельного Excel (один и тот же gid)
+SINGLE_SHEET_GID = "1841691264"
 
 # Кнопки
 BUTTON_FULL_REPORT = "Отчет по зимним видам работ ❄️"
@@ -66,13 +66,13 @@ async def start(message: Message):
     )
     await message.answer(
         "Выберите нужный отчёт:\n\n"
-        "❄️ — полный отчёт (Excel + PDF)\n"
-        "🧑‍🏭 — только данные по дорожным рабочим (Excel)",
+        "❄️ — полный отчёт (Excel всей таблицы + PDF листа)\n"
+        "🧑‍🏭 — только лист с данными по дорожным рабочим (Excel)",
         reply_markup=kb
     )
 
 
-# ── Полный отчёт (Excel + PDF) ──────────────────────────────────────
+# ── Полный отчёт (Excel всей таблицы + PDF одного листа) ─────────────
 @dp.message(F.text == BUTTON_FULL_REPORT)
 async def send_full_report(message: Message):
     base_name, report_text = get_report_info()
@@ -83,7 +83,7 @@ async def send_full_report(message: Message):
     # Текстовое сообщение первым
     await message.answer(report_text)
 
-    # Excel всей таблицы
+    # Excel всей таблицы (без gid → все листы)
     excel_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
     try:
         excel_resp = requests.get(excel_url, timeout=40)
@@ -102,7 +102,7 @@ async def send_full_report(message: Message):
     # PDF конкретного листа
     pdf_url = (
         f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?"
-        f"format=pdf&gid={PDF_GID}&size=A3&portrait=false&fitw=true&"
+        f"format=pdf&gid={SINGLE_SHEET_GID}&size=A3&portrait=false&fitw=true&"
         f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
     try:
@@ -119,15 +119,13 @@ async def send_full_report(message: Message):
         await message.answer(f"❌ Не удалось выгрузить PDF: {str(e)}")
 
 
-# ── Только лист gid=1841691264 в Excel ───────────────────────────────
+# ── Только один лист gid=1841691264 в Excel ──────────────────────────
 @dp.message(F.text == BUTTON_WORKERS_EXCEL)
 async def send_workers_excel(message: Message):
     filename = "Данные по дорожным рабочим.xlsx"
 
-    # Экспорт конкретного листа в .xlsx
-    # Примечание: Google Sheets export по gid работает только для pdf, 
-    # для xlsx всегда скачивается вся книга. Поэтому скачиваем всю таблицу.
-    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
+    # Экспорт ТОЛЬКО одного листа (с gid!)
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx&gid={SINGLE_SHEET_GID}"
 
     try:
         response = requests.get(url, timeout=40)
@@ -140,8 +138,16 @@ async def send_workers_excel(message: Message):
             ),
             caption=None
         )
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 400 or e.response.status_code == 403:
+            await message.answer(
+                "❌ Ошибка доступа. Убедись, что таблица опубликована ('Опубликовать в Интернете') "
+                "или доступна по ссылке ('Anyone with the link' → Viewer)."
+            )
+        else:
+            await message.answer(f"❌ Не удалось выгрузить данные: {str(e)}")
     except Exception as e:
-        await message.answer(f"❌ Не удалось выгрузить данные по рабочим: {str(e)}")
+        await message.answer(f"🚨 Ошибка: {str(e)}")
 
 
 # ────────────────────────────────────────────────
