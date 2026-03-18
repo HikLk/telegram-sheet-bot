@@ -21,9 +21,8 @@ SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 # PDF-лист
 PDF_GID = "1841691264"
 
-# Кнопки
-BUTTON_ALL_EXCEL = "📊 Все листы в один Excel"
-BUTTON_PDF = "📄 PDF (отчёт)"
+# Кнопка
+BUTTON_REPORT = "Отчет по зимним видам работ ❄️"
 
 # Смещение для московского времени
 MSK_OFFSET = timedelta(hours=3)
@@ -32,99 +31,98 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # ────────────────────────────────────────────────
-def get_report_filename() -> str:
-    """Определяет имя файла по московскому времени (+3 к UTC)"""
+def get_report_info():
+    """Возвращает базовое имя файлов и текст периода в зависимости от MSK времени"""
     utc_now = datetime.now(timezone.utc)
     msk_now = utc_now + MSK_OFFSET
     hour = msk_now.hour
     
     if 18 <= hour or hour < 6:
-        return "Отчет на 20:00.pdf"
+        base = "Отчет на 20:00"
+        period = "08:00 - 20:00"
     else:
-        return "Отчет на 8:00.pdf"
+        base = "Отчет на 8:00"
+        period = "20:00 - 08:00"
+    
+    message_text = (
+        f"Уважаемый Марат Шамилевич!\n"
+        f"Направляю рейтинг по выходу техники, водителей, дорожных рабочих, "
+        f"очистке и обработке а/д за период с {period}."
+    )
+    
+    return base, message_text
 
 
 @dp.message(CommandStart())
 async def start(message: Message):
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BUTTON_ALL_EXCEL)],
-            [KeyboardButton(text=BUTTON_PDF)],
+            [KeyboardButton(text=BUTTON_REPORT)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False
     )
     await message.answer(
-        "Выбери действие:\n\n"
-        f"• {BUTTON_ALL_EXCEL} — вся таблица в одном .xlsx файле\n"
-        f"• {BUTTON_PDF} — лист gid={PDF_GID} в PDF (A3, альбомная ориентация)",
+        "Нажмите кнопку ниже, чтобы получить отчёт ❄️",
         reply_markup=kb
     )
 
 
-@dp.message(F.text == BUTTON_ALL_EXCEL)
-async def export_all_excel(message: Message):
-    export_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
+@dp.message(F.text == BUTTON_REPORT)
+async def send_report(message: Message):
+    base_name, report_text = get_report_info()
+
+    excel_filename = f"{base_name}.xlsx"
+    pdf_filename   = f"{base_name}.pdf"
+
+    # 1. Отправляем текстовое сообщение первым
+    await message.answer(report_text)
+
+    # 2. Excel (вся таблица)
+    excel_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
 
     try:
-        response = requests.get(export_url, timeout=40)
-        response.raise_for_status()
-
-        file_bytes = io.BytesIO(response.content)
+        excel_resp = requests.get(excel_url, timeout=40)
+        excel_resp.raise_for_status()
 
         await message.answer_document(
             document=BufferedInputFile(
-                file=file_bytes.getvalue(),
-                filename="Все_листы.xlsx"
+                file=excel_resp.content,
+                filename=excel_filename
             ),
-            caption="Вся таблица (все доступные листы)"
+            caption=None  # без подписи
         )
-
-    except requests.Timeout:
-        await message.answer("⏳ Долго скачиваем файл. Попробуй ещё раз.")
-    except requests.RequestException as e:
-        await message.answer(f"❌ Не удалось скачать Excel: {str(e)}")
     except Exception as e:
-        await message.answer(f"🚨 Ошибка: {str(e)}")
+        await message.answer(f"❌ Не удалось выгрузить Excel: {str(e)}")
+        return  # если Excel не скачался — дальше не пытаемся
 
-
-@dp.message(F.text == BUTTON_PDF)
-async def export_pdf(message: Message):
-    filename = get_report_filename()
-
-    export_url = (
+    # 3. PDF (конкретный лист, A3 landscape)
+    pdf_url = (
         f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?"
         f"format=pdf&"
         f"gid={PDF_GID}&"
-        f"size=A3&"             # A3
-        f"portrait=false&"      # альбомная ориентация (landscape)
-        f"fitw=true&"           # подгонка по ширине страницы
-        f"gridlines=false&"     # без сетки
-        f"printtitle=false&"    # без заголовка таблицы
-        f"sheetnames=false&"    # без имени листа вверху
-        f"fzr=false"            # без повторения замороженных строк
+        f"size=A3&"
+        f"portrait=false&"
+        f"fitw=true&"
+        f"gridlines=false&"
+        f"printtitle=false&"
+        f"sheetnames=false&"
+        f"fzr=false"
     )
 
     try:
-        response = requests.get(export_url, timeout=30)
-        response.raise_for_status()
-
-        pdf_bytes = io.BytesIO(response.content)
+        pdf_resp = requests.get(pdf_url, timeout=30)
+        pdf_resp.raise_for_status()
 
         await message.answer_document(
             document=BufferedInputFile(
-                file=pdf_bytes.getvalue(),
-                filename=filename
+                file=pdf_resp.content,
+                filename=pdf_filename
             ),
-            caption=f"{filename} (A3, альбомная, {MSK_OFFSET} к UTC)"
+            caption=None  # без подписи
         )
-
-    except requests.Timeout:
-        await message.answer("⏳ Долго скачиваем PDF. Попробуй ещё раз.")
-    except requests.RequestException as e:
-        await message.answer(f"❌ Не удалось скачать PDF: {str(e)}\nПроверь доступ к таблице.")
     except Exception as e:
-        await message.answer(f"🚨 Ошибка: {str(e)}")
+        await message.answer(f"❌ Не удалось выгрузить PDF: {str(e)}")
 
 
 # ────────────────────────────────────────────────
