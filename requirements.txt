@@ -1,2 +1,2 @@
-aiogram==2.25.1
-requests
+aiogram>=3.13,<3.14     # или просто aiogram  — берёт самую свежую
+requests>=2.28
