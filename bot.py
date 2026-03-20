@@ -35,6 +35,9 @@ CUM_GID   = "1514416922"      # накопительные данные
 # Кнопки
 BUTTON_FULL_REPORT   = "Отчет по зимним видам работ ❄️"
 
+# Фотка Андрея
+BUTTON_ANDREY = "Посмотреть на Андрея 😏"   # ← можно поменять эмодзи или текст
+
 # Летние виды работ
 BUTTON_SUMMER_REPORT = "Отчет по летним видам работ 🌞"
 BUTTON_DAILY_SUMMER  = "Выгрузить данные за сутки 📅"
@@ -84,10 +87,11 @@ def get_main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BUTTON_FULL_REPORT)],
-            [KeyboardButton(text=BUTTON_SUMMER_REPORT)],
-            [KeyboardButton(text=BUTTON_PLANS_EXCEL)],
             [KeyboardButton(text=BUTTON_WORKERS_EXCEL)],
-            [KeyboardButton(text=BUTTON_CONTRACTORS)],          # ← новая кнопка
+            [KeyboardButton(text=BUTTON_PLANS_EXCEL)],
+            [KeyboardButton(text=BUTTON_SUMMER_REPORT)],
+            [KeyboardButton(text=BUTTON_CONTRACTORS)],
+            [KeyboardButton(text=BUTTON_ANDREY)],               # ← новая кнопка
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -112,14 +116,15 @@ def get_summer_keyboard():
 async def start(message: Message):
     kb = get_main_keyboard()
     await message.answer(
-        "Выберите нужный отчёт:\n\n"
-        "❄️ — полный отчёт зимний (Excel всей таблицы + PDF листа)\n"
-        "🌞 — отчет по летним видам работ (данные за сутки / накопительные / полный)\n"
-        "📋 — планы от РУАД (вся таблица в Excel)\n"
-        "🧑‍🏭 — только лист с данными по дорожным рабочим (Excel)\n"
-        "📊 — выполнения подрядчиков (вся таблица в Excel)",
-        reply_markup=kb
-    )
+    "Выберите нужный отчёт:\n\n"
+    "❄️ — полный отчёт зимний ...\n"
+    "🧑‍🏭 — только лист с данными ...\n"
+    "📋 — планы от РУАД ...\n"
+    "🌞 — отчет по летним видам ...\n"
+    "📊 — выполнения подрядчиков ...\n"
+    "😏 — посмотреть на Андрея",
+    reply_markup=kb
+)
 
 
 # ── Полный отчёт зимний (оставлен без изменений) ─────────────────────
@@ -208,6 +213,20 @@ async def send_contractors_excel(message: Message):
         )
     except Exception as e:
         await message.answer(f"❌ Не удалось выгрузить таблицу подрядчиков: {str(e)}")
+
+# ── Фото Андрея (оставлен без изменений) ───────────────────────────
+@dp.message(F.text == BUTTON_ANDREY)
+async def send_andrey_photo(message: Message):
+    photo_url = "https://i.ibb.co/XZ8GpFxV/photo-2025-09-19-15-29-08.jpg"  # прямая ссылка на изображение
+    
+    try:
+        # Отправляем фото с подписью (можно убрать или изменить caption)
+        await message.answer_photo(
+            photo=photo_url,
+            caption="Вот Андрей 👀"
+        )
+    except Exception as e:
+        await message.answer(f"Не удалось отправить фото 😔\nОшибка: {str(e)}")
 
 
 # ── МЕНЮ ЛЕТНИХ ВИДОВ РАБОТ ──────────────────────────────────────────
