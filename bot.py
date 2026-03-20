@@ -22,6 +22,11 @@ SINGLE_SHEET_GID = "1841691264"
 # Планы от РУАД
 PLANS_SPREADSHEET_ID = "1SPmkft_ZvZr4tmCBcmzN0AE7HPscy3aRwB82uqR34CU"
 
+# Выполнения подрядчиков
+CONTRACTORS_SPREADSHEET_ID = "1u7Hn4snGNAMNjMyXo7fcOUxS7vdzTS6Dj9n3J_IXVu0"
+
+BUTTON_CONTRACTORS = "Выполнения подрядчиков 📊"
+
 # ── НОВАЯ ЛЕТНЯЯ ТАБЛИЦА ─────────────────────────────────────
 SUMMER_SPREADSHEET_ID = "14w0tzn5xsX2ZX5zgHYfEsMZ8p0ZX2f3rLhO_yR0I-3A"
 DAILY_GID = "1539583525"      # данные за последние сутки
@@ -29,8 +34,6 @@ CUM_GID   = "1514416922"      # накопительные данные
 
 # Кнопки
 BUTTON_FULL_REPORT   = "Отчет по зимним видам работ ❄️"
-BUTTON_WORKERS_EXCEL = "Количество дорожных рабочих для МТДИ 🧑‍🏭"
-BUTTON_PLANS_EXCEL   = "Планы от РУАД 📋"
 
 # Летние виды работ
 BUTTON_SUMMER_REPORT = "Отчет по летним видам работ 🌞"
@@ -38,6 +41,9 @@ BUTTON_DAILY_SUMMER  = "Выгрузить данные за сутки 📅"
 BUTTON_CUM_SUMMER    = "Выгрузить накопительные данные 📊"
 BUTTON_FULL_SUMMER   = "Выгрузить полный отчет 📋"
 BUTTON_BACK          = "Назад в главное меню 🔙"
+
+BUTTON_WORKERS_EXCEL = "Количество дорожных рабочих для МТДИ 🧑‍🏭"
+BUTTON_PLANS_EXCEL   = "Планы от РУАД 📋"
 
 # Смещение для московского времени
 MSK_OFFSET = timedelta(hours=3)
@@ -78,9 +84,10 @@ def get_main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BUTTON_FULL_REPORT)],
-            [KeyboardButton(text=BUTTON_WORKERS_EXCEL)],
-            [KeyboardButton(text=BUTTON_PLANS_EXCEL)],
             [KeyboardButton(text=BUTTON_SUMMER_REPORT)],
+            [KeyboardButton(text=BUTTON_PLANS_EXCEL)],
+            [KeyboardButton(text=BUTTON_WORKERS_EXCEL)],
+            [KeyboardButton(text=BUTTON_CONTRACTORS)],          # ← новая кнопка
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -107,9 +114,10 @@ async def start(message: Message):
     await message.answer(
         "Выберите нужный отчёт:\n\n"
         "❄️ — полный отчёт зимний (Excel всей таблицы + PDF листа)\n"
-        "🧑‍🏭 — только лист с данными по дорожным рабочим (Excel)\n"
+        "🌞 — отчет по летним видам работ (данные за сутки / накопительные / полный)\n"
         "📋 — планы от РУАД (вся таблица в Excel)\n"
-        "🌞 — отчет по летним видам работ (данные за сутки / накопительные / полный)",
+        "🧑‍🏭 — только лист с данными по дорожным рабочим (Excel)\n"
+        "📊 — выполнения подрядчиков (вся таблица в Excel)",
         reply_markup=kb
     )
 
@@ -180,6 +188,26 @@ async def send_plans_excel(message: Message):
         )
     except Exception as e:
         await message.answer(f"❌ Не удалось выгрузить планы от РУАД: {str(e)}")
+
+# ── Выполнения подрядчиков (оставлен без изменений) ───────────────────────────
+@dp.message(F.text == BUTTON_CONTRACTORS)
+async def send_contractors_excel(message: Message):
+    today = get_msk_date_str()
+    filename = f"Выполнения подрядчиков {today}.xlsx"
+    
+    url = f"https://docs.google.com/spreadsheets/d/{CONTRACTORS_SPREADSHEET_ID}/export?format=xlsx"
+    
+    await message.answer(f"📊 Выгружаю выполнения подрядчиков на {today}...")
+    
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(
+            document=BufferedInputFile(file=r.content, filename=filename),
+            caption="Полная таблица выполнений подрядчиков в Excel"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить таблицу подрядчиков: {str(e)}")
 
 
 # ── МЕНЮ ЛЕТНИХ ВИДОВ РАБОТ ──────────────────────────────────────────
@@ -276,39 +304,55 @@ async def send_full_summer(message: Message):
     today = get_msk_date_str()
     base_name = f"Отчет по летнему содержанию {today}"
     excel_filename = f"{base_name}.xlsx"
-    pdf_filename = f"{base_name}.pdf"
-
+    
     await message.answer(f"📋 Выгружаю полный отчет по летнему содержанию ({today})...")
 
-    # Excel всей таблицы
-    url = f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
+    # 1. Excel — вся таблица
+    url_excel = f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
     try:
-        r = requests.get(url, timeout=40)
+        r = requests.get(url_excel, timeout=40)
         r.raise_for_status()
         await message.answer_document(
             document=BufferedInputFile(file=r.content, filename=excel_filename),
-            caption=None
+            caption="Полная таблица (все листы) в Excel"
         )
     except Exception as e:
         await message.answer(f"❌ Не удалось выгрузить Excel (полный): {str(e)}")
         return
 
-    # PDF накопительного листа
-    gid = CUM_GID
-    pdf_url = (
+    # 2. PDF — данные за сутки
+    pdf_filename_daily = f"{base_name} — сутки.pdf"
+    pdf_url_daily = (
         f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?"
-        f"format=pdf&gid={gid}&size=A3&portrait=false&fitw=true&"
+        f"format=pdf&gid={DAILY_GID}&size=A3&portrait=false&fitw=true&"
         f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
     try:
-        r = requests.get(pdf_url, timeout=30)
+        r = requests.get(pdf_url_daily, timeout=30)
         r.raise_for_status()
         await message.answer_document(
-            document=BufferedInputFile(file=r.content, filename=pdf_filename),
-            caption=None
+            document=BufferedInputFile(file=r.content, filename=pdf_filename_daily),
+            caption="Лист с данными за сутки"
         )
     except Exception as e:
-        await message.answer(f"❌ Не удалось выгрузить PDF (полный): {str(e)}")
+        await message.answer(f"❌ Не удалось выгрузить PDF (сутки): {str(e)}")
+
+    # 3. PDF — накопительные данные
+    pdf_filename_cum = f"{base_name} — накопительные.pdf"
+    pdf_url_cum = (
+        f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?"
+        f"format=pdf&gid={CUM_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
+    )
+    try:
+        r = requests.get(pdf_url_cum, timeout=30)
+        r.raise_for_status()
+        await message.answer_document(
+            document=BufferedInputFile(file=r.content, filename=pdf_filename_cum),
+            caption="Лист с накопительными данными"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить PDF (накопительные): {str(e)}")
 
 
 @dp.message(F.text == BUTTON_BACK)
