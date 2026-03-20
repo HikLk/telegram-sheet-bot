@@ -91,7 +91,7 @@ def get_main_keyboard():
             [KeyboardButton(text=BUTTON_PLANS_EXCEL)],
             [KeyboardButton(text=BUTTON_SUMMER_REPORT)],
             [KeyboardButton(text=BUTTON_CONTRACTORS)],
-            [KeyboardButton(text=BUTTON_ANDREY)],               # ← новая кнопка
+            # [KeyboardButton(text=BUTTON_ANDREY)],               # ← новая кнопка
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -121,8 +121,8 @@ async def start(message: Message):
     "🧑‍🏭 — только лист с данными ...\n"
     "📋 — планы от РУАД ...\n"
     "🌞 — отчет по летним видам ...\n"
-    "📊 — выполнения подрядчиков ...\n"
-    "😏 — посмотреть на Андрея",
+    "📊 — выполнения подрядчиков ...",
+    #"😏 — посмотреть на Андрея",
     reply_markup=kb
 )
 
@@ -215,18 +215,18 @@ async def send_contractors_excel(message: Message):
         await message.answer(f"❌ Не удалось выгрузить таблицу подрядчиков: {str(e)}")
 
 # ── Фото Андрея (оставлен без изменений) ───────────────────────────
-@dp.message(F.text == BUTTON_ANDREY)
-async def send_andrey_photo(message: Message):
-    photo_url = "https://i.ibb.co/XZ8GpFxV/photo-2025-09-19-15-29-08.jpg"  # прямая ссылка на изображение
-    
-    try:
-        # Отправляем фото с подписью (можно убрать или изменить caption)
-        await message.answer_photo(
-            photo=photo_url,
-            caption="Вот Андрей 👀"
-        )
-    except Exception as e:
-        await message.answer(f"Не удалось отправить фото 😔\nОшибка: {str(e)}")
+#@dp.message(F.text == BUTTON_ANDREY)
+#async def send_andrey_photo(message: Message):
+#    photo_url = "https://i.ibb.co/XZ8GpFxV/photo-2025-09-19-15-29-08.jpg"  # прямая ссылка на изображение
+#    
+#    try:
+#        # Отправляем фото с подписью (можно убрать или изменить caption)
+#        await message.answer_photo(
+#            photo=photo_url,
+#            caption="Вот Андрей 👀"
+#        )
+#    except Exception as e:
+#        await message.answer(f"Не удалось отправить фото 😔\nОшибка: {str(e)}")
 
 
 # ── МЕНЮ ЛЕТНИХ ВИДОВ РАБОТ ──────────────────────────────────────────
