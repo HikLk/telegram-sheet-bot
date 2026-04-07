@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import requests
+import os
+import json
 from datetime import datetime, timezone, timedelta
 
 from aiogram import Bot, Dispatcher, F
@@ -13,7 +15,6 @@ from google.oauth2.service_account import Credentials
 # ====================== НАСТРОЙКИ ======================
 TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
 TARGET_CHAT_ID = -4960002149
-SERVICE_ACCOUNT_FILE = "service_account.json"
 
 MAIN_SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 SINGLE_SHEET_GID = "1841691264"
@@ -34,6 +35,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 sent_cells = set()
+last_reset_date = None
 
 # ====================== КЛАВИАТУРЫ ======================
 def main_kb():
@@ -93,7 +95,6 @@ def get_pdf(url):
     return r.content
 
 # ====================== МОНИТОРИНГ ======================
-# ====================== МОНИТОРИНГ ======================
 async def monitor():
     global last_reset_date
     print("🟢 Мониторинг активен. Автосброс sent_cells в 04:00 МСК")
@@ -108,20 +109,23 @@ async def monitor():
             now = msk_now()
             today_date = now.date()
 
-            # Автоматический сброс sent_cells каждый день в 04:00 МСК
+            # Автоматический сброс в 04:00 МСК
             if now.hour == 4 and now.minute == 0 and last_reset_date != today_date:
                 sent_cells.clear()
                 last_reset_date = today_date
-                print(f"✅ sent_cells успешно сброшен в {now.strftime('%H:%M:%S')} МСК")
+                print(f"✅ sent_cells сброшен в {now.strftime('%H:%M:%S')} МСК")
 
-            # === Авторизация Google (обновлённый способ) ===
-            creds = Credentials.from_service_account_file(
-                SERVICE_ACCOUNT_FILE,
-                scopes=SCOPES
-            )
+            # Загрузка credentials из переменной окружения Railway
+            google_creds = os.environ.get("GOOGLE_CREDENTIALS")
+            if not google_creds:
+                raise Exception("❌ Переменная GOOGLE_CREDENTIALS не найдена в Railway!")
+
+            creds_dict = json.loads(google_creds)
+
+            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
             client = gspread.authorize(creds)
 
-            # Получаем данные из листа "Данные за сутки"
+            # Проверка галочек в летнем ежедневном отчёте
             sheet = client.open_by_key(SUMMER_SPREADSHEET_ID).get_worksheet_by_id(DAILY_GID)
             values = sheet.get_values("A1:A5")
 
@@ -132,7 +136,6 @@ async def monitor():
                     if cell not in sent_cells:
                         sent_cells.add(cell)
 
-                        # Скачиваем полный Excel
                         file = get_excel(
                             f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
                         )
@@ -144,20 +147,19 @@ async def monitor():
                             BufferedInputFile(file, f"Летний отчет {today()}.xlsx"),
                             caption=caption
                         )
-
                         print(f"✅ Файл успешно отправлен по ячейке {cell}")
-                    break  # отправляем только по первой найденной галочке
+                    break
 
         except Exception as e:
             error_str = str(e).lower()
-            if "invalid_grant" in error_str or "invalid jwt" in error_str or "jwt signature" in error_str:
+            if "invalid_grant" in error_str or "jwt" in error_str or "signature" in error_str:
                 print("❌ Ошибка авторизации Google (Invalid JWT Signature).")
-                print("   → Скорее всего нужно создать новый service_account.json")
-                print("   → Удали старый ключ и создай новый в Google Cloud Console.")
+                print("   → Создай новый service_account.json и обнови переменную GOOGLE_CREDENTIALS в Railway")
             else:
                 print(f"❌ Ошибка мониторинга: {e}")
 
         await asyncio.sleep(30)  # проверка каждые 30 секунд
+
 # ====================== ХЕНДЛЕРЫ ======================
 @dp.message(CommandStart())
 async def start(m: Message):
@@ -171,17 +173,11 @@ async def winter(m: Message):
 @dp.message(F.text == "Отчет по зимним видам работ ❄️")
 async def winter_report(m: Message):
     base, period = report_info()
+    await m.answer(f"Уважаемый Марат Шамилевич!\nНаправляю данные за период {period}")
 
-    await m.answer(
-        f"Уважаемый Марат Шамилевич!\n"
-        f"Направляю данные за период {period}"
-    )
-
-    # Excel
     excel = get_excel(f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx")
     await m.answer_document(BufferedInputFile(excel, f"{base}.xlsx"))
 
-    # PDF
     pdf = get_pdf(
         f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?"
         f"format=pdf&gid={SINGLE_SHEET_GID}&size=A3&portrait=false&fitw=true"
@@ -208,10 +204,7 @@ async def summer(m: Message):
 @dp.message(F.text == "Данные за сутки 📅")
 async def summer_daily(m: Message):
     await m.answer("📅 Выгружаю...")
-
-    excel = get_excel(
-        f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={DAILY_GID}"
-    )
+    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={DAILY_GID}")
     await m.answer_document(BufferedInputFile(excel, f"Сутки {today()}.xlsx"))
 
     pdf = get_pdf(
@@ -223,10 +216,7 @@ async def summer_daily(m: Message):
 @dp.message(F.text == "Накопительные данные 📊")
 async def summer_cum(m: Message):
     await m.answer("📊 Выгружаю...")
-
-    excel = get_excel(
-        f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={CUM_GID}"
-    )
+    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={CUM_GID}")
     await m.answer_document(BufferedInputFile(excel, f"Накопительные {today()}.xlsx"))
 
     pdf = get_pdf(
@@ -238,18 +228,13 @@ async def summer_cum(m: Message):
 @dp.message(F.text == "Полный отчет 📋")
 async def summer_full(m: Message):
     await m.answer("📋 Выгружаю полный отчет...")
-
-    excel = get_excel(
-        f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
-    )
+    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx")
     await m.answer_document(BufferedInputFile(excel, f"Полный отчет {today()}.xlsx"))
 
 # ===== ПОДРЯДЧИКИ =====
 @dp.message(F.text == "📊 Выполнение подрядчиков")
 async def contractors(m: Message):
-    file = get_excel(
-        f"https://docs.google.com/spreadsheets/d/{CONTRACTORS_SPREADSHEET_ID}/export?format=xlsx"
-    )
+    file = get_excel(f"https://docs.google.com/spreadsheets/d/{CONTRACTORS_SPREADSHEET_ID}/export?format=xlsx")
     await m.answer_document(BufferedInputFile(file, f"Подрядчики {today()}.xlsx"))
 
 # ===== ИИ =====
@@ -272,6 +257,7 @@ async def main():
     asyncio.create_task(monitor())
 
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
