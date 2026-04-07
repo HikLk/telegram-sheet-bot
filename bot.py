@@ -121,7 +121,7 @@ async def monitor():
                 raise Exception("❌ Переменная GOOGLE_CREDENTIALS не найдена в Railway!")
 
             creds_dict = json.loads(google_creds)
-
+            print(f"125")
             creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
             client = gspread.authorize(creds)
 
