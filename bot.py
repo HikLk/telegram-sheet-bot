@@ -141,7 +141,7 @@ async def monitor():
                         )
 
                         caption = f"🔄 Автоотправка ({cell}) — {now.strftime('%d.%m.%Y %H:%M')}"
-
+                        print(f"✅ Собираюсь отправить сообщение {cell}")
                         await bot.send_document(
                             TARGET_CHAT_ID,
                             BufferedInputFile(file, f"Летний отчет {today()}.xlsx"),
