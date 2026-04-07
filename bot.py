@@ -152,6 +152,7 @@ async def monitor():
 
         except Exception as e:
             error_str = str(e).lower()
+            print(str(e).lower())
             if "invalid_grant" in error_str or "jwt" in error_str or "signature" in error_str:
                 print("❌ Ошибка авторизации Google (Invalid JWT Signature).")
                 print("   → Создай новый service_account.json и обнови переменную GOOGLE_CREDENTIALS в Railway")
