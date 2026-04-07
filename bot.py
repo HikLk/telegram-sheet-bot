@@ -94,13 +94,34 @@ def get_pdf(url):
 
 # ====================== МОНИТОРИНГ ======================
 async def monitor():
-    print("🟢 Мониторинг активен")
+    global last_reset_date
+    print("🟢 Мониторинг активен. Автосброс sent_cells в 04:00 МСК")
+
+    # Правильные scopes для работы с Google Sheets + Drive
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
 
     while True:
         try:
-            creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
+            now = msk_now()
+            today_date = now.date()
+
+            # Автосброс в 04:00
+            if now.hour == 4 and now.minute == 0 and last_reset_date != today_date:
+                sent_cells.clear()
+                last_reset_date = today_date
+                print(f"✅ sent_cells сброшен в {now.strftime('%H:%M:%S')} МСК")
+
+            # === НОВАЯ АВТОРИЗАЦИЯ ===
+            creds = Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE,
+                scopes=SCOPES
+            )
             client = gspread.authorize(creds)
 
+            # Проверка летнего отчёта
             sheet = client.open_by_key(SUMMER_SPREADSHEET_ID).get_worksheet_by_id(DAILY_GID)
             values = sheet.get_values("A1:A5")
 
@@ -118,18 +139,15 @@ async def monitor():
                         await bot.send_document(
                             TARGET_CHAT_ID,
                             BufferedInputFile(file, f"Летний отчет {today()}.xlsx"),
-                            caption=f"🔄 Автоотправка ({cell})"
+                            caption=f"🔄 Автоотправка ({cell}) в {now.strftime('%H:%M')}"
                         )
-
-                        print(f"✅ Отправлено {cell}")
-
+                        print(f"✅ Отправлен файл по ячейке {cell}")
                     break
 
         except Exception as e:
-            print("❌ Ошибка мониторинга:", e)
+            print(f"❌ Ошибка мониторинга: {e}")
 
-        await asyncio.sleep(120)
-
+        await asyncio.sleep(30)
 # ====================== ХЕНДЛЕРЫ ======================
 @dp.message(CommandStart())
 async def start(m: Message):
