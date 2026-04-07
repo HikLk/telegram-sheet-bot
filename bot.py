@@ -1,21 +1,15 @@
 import asyncio
 import logging
 import requests
-import os
-import json
 from datetime import datetime, timezone, timedelta
-
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile
 
-import gspread
-from google.oauth2.service_account import Credentials
-
-# ====================== НАСТРОЙКИ ======================
+# ────────────────────────────────────────────────
 TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
-TARGET_CHAT_ID = -4960002149
 
+# ID таблиц
 MAIN_SPREADSHEET_ID = "1f248h28pbE16o9pKgvJuSbh2ViKAsfTE_OK3qIRP6TA"
 SINGLE_SHEET_GID = "1841691264"
 
@@ -24,8 +18,9 @@ CONTRACTORS_SPREADSHEET_ID = "1u7Hn4snGNAMNjMyXo7fcOUxS7vdzTS6Dj9n3J_IXVu0"
 
 SUMMER_SPREADSHEET_ID = "14w0tzn5xsX2ZX5zgHYfEsMZ8p0ZX2f3rLhO_yR0I-3A"
 DAILY_GID = "1539583525"
-CUM_GID = "1514416922"
+CUM_GID   = "1514416922"
 
+# Таблица с некорректными дефектами
 DEFECTS_SPREADSHEET_ID = "1Y_asma7De51YssN9o3VTdS-Wbt0W_y2gTqm3kNwxPSo"
 DEFECTS_GID = "1257378734"
 
@@ -34,230 +29,336 @@ MSK_OFFSET = timedelta(hours=3)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-sent_cells = set()
-last_reset_date = None
+# ====================== КНОПКИ ======================
+BUTTON_WINTER = "❄️ Зимнее содержание"
+BUTTON_SUMMER = "🌞 Летнее содержание"
+BUTTON_AI_SITISOFT = "🤖 ИИ СитиСофт"
+
+# Зимнее содержание
+BUTTON_FULL_WINTER_REPORT = "Отчет по зимним видам работ ❄️"
+BUTTON_PLANS = "Планы от РУАД 📋"
+BUTTON_WORKERS = "Количество дорожных рабочих для МТДИ 🧑‍🏭"
+BUTTON_CONTRACTORS = "Выполнения подрядчиков 📊"
+
+# Летнее содержание
+BUTTON_SUMMER_DAILY = "Данные за сутки 📅"
+BUTTON_SUMMER_CUM = "Накопительные данные 📊"
+BUTTON_SUMMER_FULL = "Полный отчет по летнему содержанию 📋"
+BUTTON_BACK = "🔙 Назад"
 
 # ====================== КЛАВИАТУРЫ ======================
-def main_kb():
+def get_main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="❄️ Зимнее содержание")],
-            [KeyboardButton(text="🌞 Летнее содержание")],
-            [KeyboardButton(text="📊 Выполнение подрядчиков")],
-            [KeyboardButton(text="🤖 ИИ СитиСофт")],
+            [KeyboardButton(text=BUTTON_WINTER)],
+            [KeyboardButton(text=BUTTON_SUMMER)],
+            [KeyboardButton(text=BUTTON_AI_SITISOFT)],
         ],
         resize_keyboard=True
     )
 
-def winter_kb():
+
+def get_winter_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Отчет по зимним видам работ ❄️")],
-            [KeyboardButton(text="Планы от РУАД 📋")],
-            [KeyboardButton(text="Количество дорожных рабочих 🧑‍🏭")],
-            [KeyboardButton(text="🔙 Назад")],
+            [KeyboardButton(text=BUTTON_FULL_WINTER_REPORT)],
+            [KeyboardButton(text=BUTTON_PLANS)],
+            [KeyboardButton(text=BUTTON_WORKERS)],
+            [KeyboardButton(text=BUTTON_CONTRACTORS)],
+            [KeyboardButton(text=BUTTON_BACK)],
         ],
         resize_keyboard=True
     )
 
-def summer_kb():
+
+def get_summer_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Данные за сутки 📅")],
-            [KeyboardButton(text="Накопительные данные 📊")],
-            [KeyboardButton(text="Полный отчет 📋")],
-            [KeyboardButton(text="🔙 Назад")],
+            [KeyboardButton(text=BUTTON_SUMMER_DAILY)],
+            [KeyboardButton(text=BUTTON_SUMMER_CUM)],
+            [KeyboardButton(text=BUTTON_SUMMER_FULL)],
+            [KeyboardButton(text=BUTTON_BACK)],
         ],
         resize_keyboard=True
     )
 
-# ====================== УТИЛИТЫ ======================
-def msk_now():
-    return datetime.now(timezone.utc) + MSK_OFFSET
 
-def today():
-    return msk_now().strftime("%d.%m.%Y")
+def get_msk_date_str():
+    """Сегодняшняя дата по Москве в формате ДД.ММ.ГГГГ"""
+    utc_now = datetime.now(timezone.utc)
+    msk_now = utc_now + MSK_OFFSET
+    return msk_now.strftime("%d.%m.%Y")
 
-def report_info():
-    hour = msk_now().hour
+
+def get_report_info():
+    utc_now = datetime.now(timezone.utc)
+    msk_now = utc_now + MSK_OFFSET
+    hour = msk_now.hour
+   
     if 18 <= hour or hour < 6:
-        return "Отчет на 20:00", "08:00 - 20:00"
-    return "Отчет на 8:00", "20:00 - 08:00"
+        base = "Отчет на 20:00"
+        period = "08:00 - 20:00"
+    else:
+        base = "Отчет на 8:00"
+        period = "20:00 - 08:00"
+   
+    message_text = (
+        f"Уважаемый Марат Шамилевич!\n"
+        f"Направляю рейтинг по выходу техники, водителей, дорожных рабочих, "
+        f"очистке и обработке а/д за период с {period}."
+    )
+    return base, message_text
 
-def get_excel(url):
-    r = requests.get(url, timeout=40)
-    r.raise_for_status()
-    return r.content
-
-def get_pdf(url):
-    r = requests.get(url, timeout=40)
-    r.raise_for_status()
-    return r.content
-
-# ====================== МОНИТОРИНГ ======================
-async def monitor():
-    global last_reset_date
-    print("🟢 Мониторинг активен. Автосброс sent_cells в 04:00 МСК")
-
-    SCOPES = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    while True:
-        try:
-            now = msk_now()
-            today_date = now.date()
-
-            # Автоматический сброс в 04:00 МСК
-            if now.hour == 4 and now.minute == 0 and last_reset_date != today_date:
-                sent_cells.clear()
-                last_reset_date = today_date
-                print(f"✅ sent_cells сброшен в {now.strftime('%H:%M:%S')} МСК")
-
-            # Загрузка credentials из переменной окружения Railway
-            google_creds = os.environ.get("GOOGLE_CREDENTIALS")
-            if not google_creds:
-                raise Exception("❌ Переменная GOOGLE_CREDENTIALS не найдена в Railway!")
-
-            creds_dict = json.loads(google_creds)
-
-            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-            client = gspread.authorize(creds)
-
-            # Проверка галочек в летнем ежедневном отчёте
-            sheet = client.open_by_key(SUMMER_SPREADSHEET_ID).get_worksheet_by_id(DAILY_GID)
-            values = sheet.get_values("A1:A5")
-
-            for i, row in enumerate(values):
-                if row and str(row[0]).strip() == "✅":
-                    cell = f"A{i+1}"
-
-                    if cell not in sent_cells:
-                        sent_cells.add(cell)
-
-                        file = get_excel(
-                            f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
-                        )
-
-                        caption = f"🔄 Автоотправка ({cell}) — {now.strftime('%d.%m.%Y %H:%M')}"
-
-                        await bot.send_document(
-                            TARGET_CHAT_ID,
-                            BufferedInputFile(file, f"Летний отчет {today()}.xlsx"),
-                            caption=caption
-                        )
-                        print(f"✅ Файл успешно отправлен по ячейке {cell}")
-                    break
-
-        except Exception as e:
-            error_str = str(e).lower()
-            if "invalid_grant" in error_str or "jwt" in error_str or "signature" in error_str:
-                print("❌ Ошибка авторизации Google (Invalid JWT Signature).")
-                print("   → Создай новый service_account.json и обнови переменную GOOGLE_CREDENTIALS в Railway")
-            else:
-                print(f"❌ Ошибка мониторинга: {e}")
-
-        await asyncio.sleep(30)  # проверка каждые 30 секунд
 
 # ====================== ХЕНДЛЕРЫ ======================
 @dp.message(CommandStart())
-async def start(m: Message):
-    await m.answer("Выберите раздел:", reply_markup=main_kb())
+async def start(message: Message):
+    await message.answer(
+        "👋 Выберите раздел:",
+        reply_markup=get_main_keyboard()
+    )
 
-# ===== ЗИМА =====
-@dp.message(F.text == "❄️ Зимнее содержание")
-async def winter(m: Message):
-    await m.answer("Зимнее содержание:", reply_markup=winter_kb())
 
-@dp.message(F.text == "Отчет по зимним видам работ ❄️")
-async def winter_report(m: Message):
-    base, period = report_info()
-    await m.answer(f"Уважаемый Марат Шамилевич!\nНаправляю данные за период {period}")
+# ==================== ЗИМНЕЕ СОДЕРЖАНИЕ ====================
+@dp.message(F.text == BUTTON_WINTER)
+async def winter_menu(message: Message):
+    await message.answer("❄️ Зимнее содержание:", reply_markup=get_winter_keyboard())
 
-    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx")
-    await m.answer_document(BufferedInputFile(excel, f"{base}.xlsx"))
 
-    pdf = get_pdf(
+@dp.message(F.text == BUTTON_FULL_WINTER_REPORT)
+async def send_full_winter_report(message: Message):
+    base_name, report_text = get_report_info()
+    await message.answer(report_text)
+    
+    # Excel всей таблицы
+    url = f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx"
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(
+            document=BufferedInputFile(r.content, f"{base_name}.xlsx")
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить Excel: {str(e)}")
+        return
+
+    # PDF конкретного листа
+    pdf_url = (
         f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?"
-        f"format=pdf&gid={SINGLE_SHEET_GID}&size=A3&portrait=false&fitw=true"
+        f"format=pdf&gid={SINGLE_SHEET_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
-    await m.answer_document(BufferedInputFile(pdf, f"{base}.pdf"))
+    try:
+        r = requests.get(pdf_url, timeout=30)
+        r.raise_for_status()
+        await message.answer_document(
+            document=BufferedInputFile(r.content, f"{base_name}.pdf")
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить PDF: {str(e)}")
 
-@dp.message(F.text == "Планы от РУАД 📋")
-async def plans(m: Message):
-    file = get_excel(f"https://docs.google.com/spreadsheets/d/{PLANS_SPREADSHEET_ID}/export?format=xlsx")
-    await m.answer_document(BufferedInputFile(file, f"Планы {today()}.xlsx"))
 
-@dp.message(F.text == "Количество дорожных рабочих 🧑‍🏭")
-async def workers(m: Message):
-    file = get_excel(
-        f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx&gid={SINGLE_SHEET_GID}"
-    )
-    await m.answer_document(BufferedInputFile(file, f"Рабочие {today()}.xlsx"))
+@dp.message(F.text == BUTTON_WORKERS)
+async def send_workers(message: Message):
+    today = get_msk_date_str()
+    filename = f"Дорожные рабочие {today}.xlsx"
+    url = f"https://docs.google.com/spreadsheets/d/{MAIN_SPREADSHEET_ID}/export?format=xlsx&gid={SINGLE_SHEET_GID}"
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить данные по рабочим: {str(e)}")
 
-# ===== ЛЕТО =====
-@dp.message(F.text == "🌞 Летнее содержание")
-async def summer(m: Message):
-    await m.answer("Летнее содержание:", reply_markup=summer_kb())
 
-@dp.message(F.text == "Данные за сутки 📅")
-async def summer_daily(m: Message):
-    await m.answer("📅 Выгружаю...")
-    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={DAILY_GID}")
-    await m.answer_document(BufferedInputFile(excel, f"Сутки {today()}.xlsx"))
+@dp.message(F.text == BUTTON_PLANS)
+async def send_plans(message: Message):
+    today = get_msk_date_str()
+    filename = f"Планы от РУАД {today}.xlsx"
+    url = f"https://docs.google.com/spreadsheets/d/{PLANS_SPREADSHEET_ID}/export?format=xlsx"
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить планы от РУАД: {str(e)}")
 
-    pdf = get_pdf(
+
+@dp.message(F.text == BUTTON_CONTRACTORS)
+async def send_contractors(message: Message):
+    today = get_msk_date_str()
+    filename = f"Выполнения подрядчиков {today}.xlsx"
+    url = f"https://docs.google.com/spreadsheets/d/{CONTRACTORS_SPREADSHEET_ID}/export?format=xlsx"
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить таблицу подрядчиков: {str(e)}")
+
+
+# ==================== ЛЕТНЕЕ СОДЕРЖАНИЕ ====================
+@dp.message(F.text == BUTTON_SUMMER)
+async def summer_menu(message: Message):
+    await message.answer("🌞 Летнее содержание:", reply_markup=get_summer_keyboard())
+
+
+@dp.message(F.text == BUTTON_SUMMER_DAILY)
+async def send_daily_summer(message: Message):
+    today = get_msk_date_str()
+    excel_filename = f"Данные за сутки {today}.xlsx"
+    pdf_filename = f"Данные за сутки {today}.pdf"
+
+    await message.answer(f"📅 Выгружаю данные за сутки...")
+
+    # Excel
+    url = f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={DAILY_GID}"
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, excel_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить Excel (сутки): {str(e)}")
+        return
+
+    # PDF
+    pdf_url = (
         f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?"
-        f"format=pdf&gid={DAILY_GID}&size=A3&portrait=false&fitw=true"
+        f"format=pdf&gid={DAILY_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
-    await m.answer_document(BufferedInputFile(pdf, f"Сутки {today()}.pdf"))
+    try:
+        r = requests.get(pdf_url, timeout=30)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, pdf_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить PDF (сутки): {str(e)}")
 
-@dp.message(F.text == "Накопительные данные 📊")
-async def summer_cum(m: Message):
-    await m.answer("📊 Выгружаю...")
-    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={CUM_GID}")
-    await m.answer_document(BufferedInputFile(excel, f"Накопительные {today()}.xlsx"))
 
-    pdf = get_pdf(
+@dp.message(F.text == BUTTON_SUMMER_CUM)
+async def send_cum_summer(message: Message):
+    today = get_msk_date_str()
+    excel_filename = f"Накопительные данные {today}.xlsx"
+    pdf_filename = f"Накопительные данные {today}.pdf"
+
+    await message.answer(f"📊 Выгружаю накопительные данные...")
+
+    # Excel
+    url = f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx&gid={CUM_GID}"
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, excel_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить Excel (накопительные): {str(e)}")
+        return
+
+    # PDF
+    pdf_url = (
         f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?"
-        f"format=pdf&gid={CUM_GID}&size=A3&portrait=false&fitw=true"
+        f"format=pdf&gid={CUM_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
-    await m.answer_document(BufferedInputFile(pdf, f"Накопительные {today()}.pdf"))
+    try:
+        r = requests.get(pdf_url, timeout=30)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, pdf_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить PDF (накопительные): {str(e)}")
 
-@dp.message(F.text == "Полный отчет 📋")
-async def summer_full(m: Message):
-    await m.answer("📋 Выгружаю полный отчет...")
-    excel = get_excel(f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx")
-    await m.answer_document(BufferedInputFile(excel, f"Полный отчет {today()}.xlsx"))
 
-# ===== ПОДРЯДЧИКИ =====
-@dp.message(F.text == "📊 Выполнение подрядчиков")
-async def contractors(m: Message):
-    file = get_excel(f"https://docs.google.com/spreadsheets/d/{CONTRACTORS_SPREADSHEET_ID}/export?format=xlsx")
-    await m.answer_document(BufferedInputFile(file, f"Подрядчики {today()}.xlsx"))
+@dp.message(F.text == BUTTON_SUMMER_FULL)
+async def send_full_summer(message: Message):
+    today = get_msk_date_str()
+    excel_filename = f"Полный отчет летнее содержание {today}.xlsx"
 
-# ===== ИИ =====
-@dp.message(F.text == "🤖 ИИ СитиСофт")
-async def defects(m: Message):
-    file = get_excel(
-        f"https://docs.google.com/spreadsheets/d/{DEFECTS_SPREADSHEET_ID}/export?format=xlsx&gid={DEFECTS_GID}"
+    await message.answer(f"📋 Выгружаю полный отчет...")
+
+    # 1. Excel — вся таблица
+    url_excel = f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
+    try:
+        r = requests.get(url_excel, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, excel_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить Excel (полный): {str(e)}")
+        return
+
+    # 2. PDF — данные за сутки
+    pdf_daily_filename = f"Летнее — сутки {today}.pdf"
+    pdf_url_daily = (
+        f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?"
+        f"format=pdf&gid={DAILY_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
     )
-    await m.answer_document(BufferedInputFile(file, f"Дефекты {today()}.xlsx"))
+    try:
+        r = requests.get(pdf_url_daily, timeout=30)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, pdf_daily_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить PDF (сутки): {str(e)}")
 
-# ===== НАЗАД =====
-@dp.message(F.text == "🔙 Назад")
-async def back(m: Message):
-    await m.answer("Главное меню", reply_markup=main_kb())
+    # 3. PDF — накопительные данные
+    pdf_cum_filename = f"Летнее — накопительные {today}.pdf"
+    pdf_url_cum = (
+        f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?"
+        f"format=pdf&gid={CUM_GID}&size=A3&portrait=false&fitw=true&"
+        f"gridlines=false&printtitle=false&sheetnames=false&fzr=false"
+    )
+    try:
+        r = requests.get(pdf_url_cum, timeout=30)
+        r.raise_for_status()
+        await message.answer_document(BufferedInputFile(r.content, pdf_cum_filename))
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить PDF (накопительные): {str(e)}")
+
+
+# ==================== ИИ СИТИСОФТ ====================
+@dp.message(F.text == BUTTON_AI_SITISOFT)
+async def ai_sitisoft_menu(message: Message):
+    today = get_msk_date_str()
+    filename = f"Некорректные дефекты на удаление {today}.xlsx"
+
+    await message.answer("🤖 Выгружаю некорректные дефекты...")
+
+    url = f"https://docs.google.com/spreadsheets/d/{DEFECTS_SPREADSHEET_ID}/export?format=xlsx&gid={DEFECTS_GID}"
+    
+    try:
+        r = requests.get(url, timeout=40)
+        r.raise_for_status()
+        await message.answer_document(
+            document=BufferedInputFile(r.content, filename),
+            caption="✅ Только лист «Некорректные дефекты на удаление»"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Не удалось выгрузить таблицу:\n{str(e)}")
+
+
+# ==================== НАЗАД ====================
+@dp.message(F.text == BUTTON_BACK)
+async def back_to_main(message: Message):
+    await message.answer(
+        "↩️ Возвращаемся в главное меню",
+        reply_markup=get_main_keyboard()
+    )
+
 
 # ====================== ЗАПУСК ======================
 async def main():
-    logging.basicConfig(level=logging.INFO)
-
-    asyncio.create_task(monitor())
-
-    await dp.start_polling(bot)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    await dp.start_polling(
+        bot,
+        allowed_updates=["message"],
+        drop_pending_updates=True
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Бот остановлен")
