@@ -124,12 +124,13 @@ async def monitor():
             print(f"125")
             creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
             client = gspread.authorize(creds)
-
+            print(f"127")
             # Проверка галочек в летнем ежедневном отчёте
             sheet = client.open_by_key(SUMMER_SPREADSHEET_ID).get_worksheet_by_id(DAILY_GID)
             values = sheet.get_values("A1:A5")
-
+            print(f"131")
             for i, row in enumerate(values):
+                print(f"133")
                 if row and str(row[0]).strip() == "✅":
                     cell = f"A{i+1}"
 
