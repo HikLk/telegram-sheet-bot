@@ -11,7 +11,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ====================== НАСТРОЙКИ ======================
-TOKEN = "PASTE_NEW_TOKEN_HERE"
+TOKEN = "8690731819:AAEN01HV4FxQ2gqTzVQQz02G58Q01Mi5SpQ"
 TARGET_CHAT_ID = -4960002149
 SERVICE_ACCOUNT_FILE = "service_account.json"
 
