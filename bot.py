@@ -93,14 +93,14 @@ def get_pdf(url):
     return r.content
 
 # ====================== МОНИТОРИНГ ======================
+# ====================== МОНИТОРИНГ ======================
 async def monitor():
     global last_reset_date
     print("🟢 Мониторинг активен. Автосброс sent_cells в 04:00 МСК")
 
-    # Правильные scopes для работы с Google Sheets + Drive
     SCOPES = [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
     ]
 
     while True:
@@ -108,20 +108,20 @@ async def monitor():
             now = msk_now()
             today_date = now.date()
 
-            # Автосброс в 04:00
+            # Автоматический сброс sent_cells каждый день в 04:00 МСК
             if now.hour == 4 and now.minute == 0 and last_reset_date != today_date:
                 sent_cells.clear()
                 last_reset_date = today_date
-                print(f"✅ sent_cells сброшен в {now.strftime('%H:%M:%S')} МСК")
+                print(f"✅ sent_cells успешно сброшен в {now.strftime('%H:%M:%S')} МСК")
 
-            # === НОВАЯ АВТОРИЗАЦИЯ ===
+            # === Авторизация Google (обновлённый способ) ===
             creds = Credentials.from_service_account_file(
                 SERVICE_ACCOUNT_FILE,
                 scopes=SCOPES
             )
             client = gspread.authorize(creds)
 
-            # Проверка летнего отчёта
+            # Получаем данные из листа "Данные за сутки"
             sheet = client.open_by_key(SUMMER_SPREADSHEET_ID).get_worksheet_by_id(DAILY_GID)
             values = sheet.get_values("A1:A5")
 
@@ -132,22 +132,32 @@ async def monitor():
                     if cell not in sent_cells:
                         sent_cells.add(cell)
 
+                        # Скачиваем полный Excel
                         file = get_excel(
                             f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
                         )
 
+                        caption = f"🔄 Автоотправка ({cell}) — {now.strftime('%d.%m.%Y %H:%M')}"
+
                         await bot.send_document(
                             TARGET_CHAT_ID,
                             BufferedInputFile(file, f"Летний отчет {today()}.xlsx"),
-                            caption=f"🔄 Автоотправка ({cell}) в {now.strftime('%H:%M')}"
+                            caption=caption
                         )
-                        print(f"✅ Отправлен файл по ячейке {cell}")
-                    break
+
+                        print(f"✅ Файл успешно отправлен по ячейке {cell}")
+                    break  # отправляем только по первой найденной галочке
 
         except Exception as e:
-            print(f"❌ Ошибка мониторинга: {e}")
+            error_str = str(e).lower()
+            if "invalid_grant" in error_str or "invalid jwt" in error_str or "jwt signature" in error_str:
+                print("❌ Ошибка авторизации Google (Invalid JWT Signature).")
+                print("   → Скорее всего нужно создать новый service_account.json")
+                print("   → Удали старый ключ и создай новый в Google Cloud Console.")
+            else:
+                print(f"❌ Ошибка мониторинга: {e}")
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(30)  # проверка каждые 30 секунд
 # ====================== ХЕНДЛЕРЫ ======================
 @dp.message(CommandStart())
 async def start(m: Message):
