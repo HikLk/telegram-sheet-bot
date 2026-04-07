@@ -74,42 +74,48 @@ def get_msk_date_str():
 
 # ====================== АВТОМАТИЧЕСКАЯ ОТПРАВКА ======================
 async def check_and_send_reports():
+    print("🟢 Мониторинг запущен. Ожидаем ✅ в A1...")
     while True:
         try:
             creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
             client = gspread.authorize(creds)
             
-            # Проверяем лист "Данные за сутки"
             sheet = client.open_by_key(SUMMER_SPREADSHEET_ID).get_worksheet_by_id(DAILY_GID)
-            values = sheet.get_values("A1:A10")
+            values = sheet.get_values("A1:A5")   # проверяем A1-A5
+            
+            print(f"📊 Проверка таблицы... A1 = {values[0][0] if values and values[0] else 'пусто'}")
             
             for i, row in enumerate(values):
-                if row and str(row[0]).strip() == TRIGGER_VALUE:
+                if row and str(row[0]).strip() == "✅":
                     cell = f"A{i+1}"
                     if cell not in sent_cells:
                         sent_cells.add(cell)
                         today = get_msk_date_str()
-                        
-                        # Выгружаем ПОЛНЫЙ ОТЧЁТ ЛЕТНЕГО СОДЕРЖАНИЯ
+                        print(f"✅ Обнаружена галочка в {cell}! Начинаем выгрузку...")
+
+                        # Выгрузка полного отчёта
                         url = f"https://docs.google.com/spreadsheets/d/{SUMMER_SPREADSHEET_ID}/export?format=xlsx"
                         r = requests.get(url, timeout=40)
                         r.raise_for_status()
                         
-                        # Отправляем ТОЛЬКО в группу "Эксплуатация"
-                        try:
-                            await bot.send_document(
-                                chat_id=TARGET_CHAT_ID,
-                                document=BufferedInputFile(r.content, f"Полный отчет летнее содержание {today}.xlsx"),
-                                caption=f"🔄 Автоматическая отправка\nПолный отчёт летнего содержания\nГалочка в {cell}"
-                            )
-                            print(f"✅ Отчёт отправлен в группу Эксплуатация")
-                        except Exception as e:
-                            logging.error(f"Ошибка отправки: {e}")
-        except Exception as e:
-            logging.error(f"Мониторинг ошибка: {e}")
-        
-        await asyncio.sleep(180)  # каждые 3 минуты
+                        print(f"📤 Файл выгружен ({len(r.content)/1024:.1f} KB), отправляем в чат...")
 
+                        await bot.send_document(
+                            chat_id=TARGET_CHAT_ID,
+                            document=BufferedInputFile(r.content, f"Полный отчет летнее содержание {today}.xlsx"),
+                            caption=f"🔄 Автоматическая отправка\nПолный отчёт летнего содержания\nГалочка в {cell}"
+                        )
+                        print(f"✅ Отчёт успешно отправлен в группу Эксплуатация!")
+                    else:
+                        print(f"⏭ Галочка уже обработана ранее")
+                    break
+
+        except Exception as e:
+            print(f"❌ Ошибка в мониторинге: {e}")
+            import traceback
+            traceback.print_exc()   # покажет полную ошибку
+
+        await asyncio.sleep(120)  # проверка каждые 2 минуты
 # ====================== ХЕНДЛЕРЫ ======================
 @dp.message(CommandStart())
 async def start(message: Message):
